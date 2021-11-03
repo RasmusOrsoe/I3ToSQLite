@@ -115,8 +115,8 @@ def Create_Empty_Tables(database,pulse_map_keys,truth_columns, pulse_map_columns
     print('Creating Empty Truth Table')
     CreateTable(database, 'truth', truth_columns, is_pulse_map = False) # Creates the truth table containing primary particle attributes and RetroReco reconstructions
     print('Creating Empty RetroReco Table')
-    CreateTable(database, 'RetroReco',retro_columns, is_pulse_map = False) # Creates the RetroReco Table with reconstuctions and associated values.
-    
+    if len(retro_columns) > 1:
+        CreateTable(database, 'RetroReco',retro_columns, is_pulse_map = False) # Creates the RetroReco Table with reconstuctions and associated values.
     for pulse_map_key in pulse_map_keys:
         # Creates the pulse map tables
         print('Creating Empty %s Table'%pulse_map_key)

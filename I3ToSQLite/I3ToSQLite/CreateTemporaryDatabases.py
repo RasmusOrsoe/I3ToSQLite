@@ -26,6 +26,22 @@ def Contains_RetroReco(frame):
         return True
     except:
         return False
+def If_Available(expression,frame):
+    try:
+        eval(expression)
+        out = expression
+    except:
+        out = str(-1)
+    return out
+
+def Contains_Classifiers(frame):
+    try:
+        frame["L4_MuonClassifier_Data_ProbNu"].value
+        return True
+    except:
+        return False
+
+
 def Build_Standard_Extraction():
     standard_truths = {'energy': 'MCInIcePrimary.energy',
             'position_x': 'MCInIcePrimary.pos.x', 
@@ -46,15 +62,20 @@ def Build_Standard_Extraction():
 
 def Case_Handle_This(frame, sim_type):
     if sim_type != 'noise':
-        MCInIcePrimary = frame['MCInIcePrimary']
+        try:
+            MCInIcePrimary = frame['MCInIcePrimary']
+        except:
+            MCInIcePrimary = frame['I3MCTree'][0]
     else:
         MCInIcePrimary = None
-    if sim_type != 'muongun' and sim_type != 'noise':
+    try:
         interaction_type =  frame["I3MCWeightDict"]["InteractionType"]
-        elasticity = frame['I3GENIEResultDict']['y']
-    else:
+    except:
         interaction_type = -1
-        elasticity = -1
+    try:
+        elasticity = frame['I3GENIEResultDict']['y']
+    except:
+        elasticity = -1 
     return MCInIcePrimary, interaction_type, elasticity
 
 def is_montecarlo(frame):
@@ -62,12 +83,15 @@ def is_montecarlo(frame):
     try:
         frame['MCInIcePrimary']
     except:
-        mc = False
+        try:
+            frame['I3MCTree']
+        except:
+            mc = False
     return mc
 
 def Build_Blank_Extraction():
     ## Please note that if the simulation type is pure noise or real that these values will be appended to the truth table
-    blank_extraction = {'energy_log10': '-1',
+    blank_extraction = {'energy': '-1',
             'position_x': '-1', 
             'position_y': '-1', 
             'position_z': '-1',
@@ -102,21 +126,23 @@ def Build_RetroReco_Extraction(is_mc):
                         'cascade_energy_retro': 'frame["L7_reconstructed_cascade_energy"].value',
                         'track_energy_retro': 'frame["L7_reconstructed_track_energy"].value',
                         'track_length_retro': 'frame["L7_reconstructed_track_length"].value',
-                        'lvl7_probnu': 'frame["L7_MuonClassifier_FullSky_ProbNu"].value',
-                        'lvl4_probnu': 'frame["L4_MuonClassifier_Data_ProbNu"].value',
-                        'lvl7_prob_track': 'frame["L7_PIDClassifier_FullSky_ProbTrack"].value'}
+                        'L7_MuonClassifier_FullSky_ProbNu': 'frame["L7_MuonClassifier_FullSky_ProbNu"].value',
+                        'L4_MuonClassifier_Data_ProbNu': 'frame["L4_MuonClassifier_Data_ProbNu"].value',
+                        'L4_NoiseClassifier_ProbNu': 'frame["L4_NoiseClassifier_ProbNu"].value',
+                        'L7_PIDClassifier_FullSky_ProbTrack': 'frame["L7_PIDClassifier_FullSky_ProbTrack"].value'}
 
     if is_mc:
         retro_extraction['osc_weight'] = 'frame["I3MCWeightDict"]["weight"]'    
     return retro_extraction
 def Extract_Retro(frame):
     contains_retro = Contains_RetroReco(frame)
+    contains_classifier = Contains_Classifiers(frame)
     is_mc = is_montecarlo(frame)
     retro = {}
-    if contains_retro:
+    if contains_retro or contains_classifier:
         retro_extraction = Build_RetroReco_Extraction(is_mc)
         for retro_variable in retro_extraction.keys():
-            retro[retro_variable] = eval(retro_extraction[retro_variable]) 
+            retro[retro_variable] = eval(If_Available(retro_extraction[retro_variable],frame)) 
     return retro
 
 def Extract_Truth(frame, input_file, extract_these_truths = None):
@@ -133,6 +159,8 @@ def Extract_Truth(frame, input_file, extract_these_truths = None):
             truth = {}
             for truth_variable in extract_these_truths.keys():
                 truth[truth_variable] = eval(extract_these_truths[truth_variable])
+        else:
+            print('Could Not Find Primary Particle')
     else:
         ## is real data or noise   
         blank_extraction = Build_Blank_Extraction()
@@ -193,7 +221,7 @@ def Find_Simulation_Type(mc, input_file):
     if mc == False:
         sim_type = 'data'
     else:
-        sim_type = 'lol'
+        sim_type = 'NuGen'
     if 'muon' in input_file:
         sim_type = 'muongun'
     if 'corsika' in input_file:
@@ -304,6 +332,7 @@ def WriteDicts(settings):
         file_counter +=1
         if verbose > 0:
             print('Worker %s has finished %s/%s I3 files.'%(id, file_counter, len(input_files)))
+            sys.stdout.flush()
     if (len(feature_big) > 0):
         print('saving eof')
         engine = sqlalchemy.create_engine('sqlite:///'+outdir +  '/%s/tmp/worker-%s-%s.db'%(db_name,id,output_count))
@@ -335,7 +364,7 @@ def HasExtension(file, extensions):
     else:
         return False
 
-def WalkDirectory(dir, extensions):
+def WalkDirectory(dir, extensions, gcd_rescue):
     files_list = []
     GCD_list   = []
     root,folders,root_files = next(os.walk(dir))
@@ -395,12 +424,13 @@ def FindFiles(paths,outdir,db_name,gcd_rescue, extensions = None):
     gcd_files_mid = []
     gcd_files = []
     for path in paths:
-        input_files_mid, gcd_files_mid = WalkDirectory(path, extensions)
+        input_files_mid, gcd_files_mid = WalkDirectory(path, extensions, gcd_rescue)
         input_files.extend(input_files_mid)
         gcd_files.extend(gcd_files_mid)
 
-    input_files, gcd_files = PairWiseShuffle(input_files, gcd_files)
-    Save_Filenames(input_files, outdir, db_name)
+    if len(input_files) > 0:
+        input_files, gcd_files = PairWiseShuffle(input_files, gcd_files)
+        Save_Filenames(input_files, outdir, db_name)
     return input_files, gcd_files
     
 def Save_Filenames(input_files,outdir, db_name):
@@ -468,25 +498,29 @@ def CreateTemporaryDatabases(paths, outdir, workers, pulse_keys,config_path, sta
             icetray.I3Logger.global_logger = icetray.I3NullLogger()    
         directory_exists = CreateOutDirectory(outdir + '/%s/tmp'%db_name)
         input_files, gcd_files = FindFiles(paths, outdir,db_name,gcd_rescue)
-        if workers > len(input_files):
-            workers = len(input_files)
         
-        # SETTINGS
-        settings = []
-        event_nos = np.array_split(np.arange(0,99999999,1),workers) #Notice that this choice means event_no is NOT unique between different databases.
-        file_list = np.array_split(np.array(input_files),workers)
-        gcd_file_list = np.array_split(np.array(gcd_files),workers)
+        if len(input_files) > 0:
+            if workers > len(input_files):
+                workers = len(input_files)
+            
+            # SETTINGS
+            settings = []
+            event_nos = np.array_split(np.arange(0,99999999,1),workers) #Notice that this choice means event_no is NOT unique between different databases.
+            file_list = np.array_split(np.array(input_files),workers)
+            gcd_file_list = np.array_split(np.array(gcd_files),workers)
 
-        for i in range(0,workers):
-            settings.append([file_list[i],str(i),gcd_file_list[i],outdir,max_dictionary_size,event_nos[i], pulse_keys, custom_truth, db_name, verbose])
-        #WriteDicts(settings[0])
-        PrintMessage(workers, input_files)       
-        p = Pool(processes = workers)
-        p.map_async(WriteDicts, settings)
-        p.close()
-        p.join()
-        print('transmitting..')
-        Transmit_Start_Time(start_time, config_path)
+            for i in range(0,workers):
+                settings.append([file_list[i],str(i),gcd_file_list[i],outdir,max_dictionary_size,event_nos[i], pulse_keys, custom_truth, db_name, verbose])
+            #WriteDicts(settings[0])
+            PrintMessage(workers, input_files)       
+            p = Pool(processes = workers)
+            p.map_async(WriteDicts, settings)
+            p.close()
+            p.join()
+            print('transmitting..')
+            Transmit_Start_Time(start_time, config_path)
+        else:
+            print('ERROR: No files found in: %s \n Please make sure your folder structure adheres to IceCube convention'%paths)
 
 
 start_time = time.time()

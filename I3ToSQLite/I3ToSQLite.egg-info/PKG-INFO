@@ -1,6 +1,6 @@
 Metadata-Version: 1.1
 Name: I3ToSQLite
-Version: 0.1.63
+Version: 0.1.73
 Summary: An unoffical I3-file to SQLite database converter.
 Home-page: https://github.com/RasmusOrsoe/I3ToSQLite
 Author: Rasmus F. Ørsøe
